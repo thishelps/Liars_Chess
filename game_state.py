@@ -210,19 +210,27 @@ class GameStateManager:
         if player_id not in self.players:
             return {}
         
-        player_color = Color(self.players[player_id]['color'])
-        game_info = self.deception_layer.get_game_info(player_color)
+        # Check if game is properly initialized
+        if not self.game_id or not self.deception_layer:
+            return {}
         
-        # Add additional player-specific information
-        game_info.update({
-            'player_id': player_id,
-            'player_color': player_color.value,
-            'game_id': self.game_id,
-            'move_count': len(self.chess_board.move_history),
-            'opponent': [pid for pid in self.players.keys() if pid != player_id][0] if len(self.players) > 1 else None
-        })
-        
-        return game_info
+        try:
+            player_color = Color(self.players[player_id]['color'])
+            game_info = self.deception_layer.get_game_info(player_color)
+            
+            # Add additional player-specific information
+            game_info.update({
+                'player_id': player_id,
+                'player_color': player_color.value,
+                'game_id': self.game_id,
+                'move_count': len(self.chess_board.move_history),
+                'opponent': [pid for pid in self.players.keys() if pid != player_id][0] if len(self.players) > 1 else None
+            })
+            
+            return game_info
+        except Exception as e:
+            print(f"Error getting player game info: {e}")
+            return {}
     
     def make_move(self, player_id: str, from_pos: tuple, to_pos: tuple, claimed_piece: str) -> Dict:
         """Process a move from a player."""

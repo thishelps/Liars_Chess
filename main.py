@@ -86,6 +86,7 @@ class LiarsChessGame:
         self.server.register_callback(MessageType.MOVE.value, self.on_move_received)
         self.server.register_callback(MessageType.LIAR_CALL.value, self.on_liar_call_received)
         self.server.register_callback(MessageType.CHECKMATE_CLAIM.value, self.on_checkmate_claim_received)
+        self.server.register_callback('request_game_state', self.on_game_state_requested)
         
         # Start server in background thread
         server_thread = threading.Thread(target=self.server.start_server, daemon=True)
@@ -161,18 +162,44 @@ class LiarsChessGame:
         self.cli.display_info("Waiting for game to start...")
         
         while not hasattr(self, 'game_started') or not self.game_started:
+            # Show current connection status
+            if self.server:
+                connected_players = len(self.server.get_connected_players())
+                self.cli.display_info(f"Players connected: {connected_players}/2")
             time.sleep(1)
         
+        self.cli.display_success("Game started! Initializing game loop...")
         self.start_game_loop()
     
     def start_game_loop(self):
         """Start the main game loop."""
         self.running = True
+        self.current_game_info = None
+        
+        # Request initial game state from server
+        if self.client:
+            self.client.send_message({
+                'type': 'request_game_state'
+            })
         
         while self.running:
             try:
-                # Get current game state
-                game_info = self.game_state.get_player_game_info(self.player_id)
+                # Get current game state (server has it, clients receive it)
+                if self.is_server:
+                    game_info = self.game_state.get_player_game_info(self.player_id)
+                else:
+                    game_info = self.current_game_info
+                
+                # Check if game info is valid
+                if not game_info or 'visible_board' not in game_info:
+                    self.cli.clear_screen()
+                    self.cli.display_title()
+                    print(f"{self.cli.colors.YELLOW}⏳ Waiting for game state...")
+                    if self.client:
+                        print(f"{self.cli.colors.WHITE}   Requesting game state from server...")
+                        self.client.send_message({'type': 'request_game_state'})
+                    time.sleep(1)
+                    continue
                 
                 # Display game state
                 self.cli.clear_screen()
@@ -357,6 +384,15 @@ class LiarsChessGame:
             'type': MessageType.GAME_STATE.value,
             'game_started': True
         })
+        
+        # Send initial game state to all players
+        for pid in self.server.get_connected_players():
+            game_info = self.game_state.get_player_game_info(pid)
+            if game_info:
+                self.server.send_to_player(pid, {
+                    'type': MessageType.GAME_STATE.value,
+                    'game_info': game_info
+                })
     
     def on_player_disconnect(self, player_id: str):
         """Handle player disconnection."""
@@ -383,6 +419,16 @@ class LiarsChessGame:
             'move': result.get('move'),
             'error': result.get('error')
         })
+        
+        # If move was successful, broadcast updated game state to all players
+        if result['success']:
+            for pid in self.server.get_connected_players():
+                game_info = self.game_state.get_player_game_info(pid)
+                if game_info:
+                    self.server.send_to_player(pid, {
+                        'type': MessageType.GAME_STATE.value,
+                        'game_info': game_info
+                    })
     
     def on_liar_call_received(self, player_id: str, message: Dict):
         """Handle liar call from client."""
@@ -410,10 +456,24 @@ class LiarsChessGame:
             'error': result.get('error')
         })
     
+    def on_game_state_requested(self, player_id: str, message: Dict):
+        """Handle game state request from client."""
+        if self.game_state and self.game_state.game_id:
+            game_info = self.game_state.get_player_game_info(player_id)
+            if game_info:
+                # Send game state to requesting player
+                self.server.send_to_player(player_id, {
+                    'type': MessageType.GAME_STATE.value,
+                    'game_info': game_info
+                })
+    
     def on_game_state_received(self, message: Dict):
         """Handle game state update from server."""
         if message.get('game_started'):
             self.game_started = True
+        
+        if message.get('game_info'):
+            self.current_game_info = message['game_info']
     
     def on_error_received(self, message: Dict):
         """Handle error message from server."""
