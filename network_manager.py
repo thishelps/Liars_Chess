@@ -146,7 +146,10 @@ class GameServer:
                         while '\n' in buffer:
                             line, buffer = buffer.split('\n', 1)
                             if line.strip():
-                                self._process_message(player_id, json.loads(line.strip()))
+                                try:
+                                    self._process_message(player_id, json.loads(line.strip()))
+                                except json.JSONDecodeError as e:
+                                    print(f"Server JSON decode error: {e}, line: {line.strip()}")
                                 
                     except json.JSONDecodeError:
                         continue
@@ -379,8 +382,11 @@ class GameClient:
                 while '\n' in buffer:
                     line, buffer = buffer.split('\n', 1)
                     if line.strip():
-                        message = json.loads(line.strip())
-                        self._process_message(message)
+                        try:
+                            message = json.loads(line.strip())
+                            self._process_message(message)
+                        except json.JSONDecodeError as e:
+                            print(f"JSON decode error: {e}, line: {line.strip()}")
                         
             except Exception as e:
                 if self.connected:

@@ -200,8 +200,16 @@ class LiarsChessGame:
                     time.sleep(3)
                     continue
                 
+                # Get available pieces for the player
+                available_pieces = []
+                for row in range(8):
+                    for col in range(8):
+                        piece = self.game_state.chess_board.get_piece(row, col)
+                        if piece and piece.color == self.player_color:
+                            available_pieces.append((row, col))
+                
                 # Get player input
-                from_pos, to_pos = self.cli.get_move_input()
+                from_pos, to_pos = self.cli.get_move_input(available_pieces)
                 
                 if from_pos is None:  # Quit
                     break

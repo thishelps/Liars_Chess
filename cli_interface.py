@@ -39,48 +39,66 @@ class CLIInterface:
         if highlighted_moves is None:
             highlighted_moves = []
         
-        print(f"\n{Fore.YELLOW}Your pieces: {player_color.value.title()}")
-        print(f"{Fore.WHITE}Enemy pieces: {'●' if player_color == Color.WHITE else '○'} (unknown)")
-        print(f"{Fore.GREEN}Revealed enemy pieces: shown as actual pieces\n")
+        print(f"\n{Fore.CYAN}╔══════════════════════════════════════╗")
+        print(f"{Fore.CYAN}║              GAME BOARD              ║")
+        print(f"{Fore.CYAN}╚══════════════════════════════════════╝")
         
-        # Column labels
-        print("    " + "  ".join([chr(ord('a') + i) for i in range(8)]))
-        print("  ┌" + "─" * 23 + "┐")
+        print(f"\n{Fore.YELLOW}🔵 Your pieces: {player_color.value.title()}")
+        print(f"{Fore.RED}🔴 Enemy pieces: {'●' if player_color == Color.WHITE else '○'} (hidden)")
+        print(f"{Fore.GREEN}✅ Revealed enemy pieces: shown as actual pieces")
         
-        # Display board rows
+        if highlighted_moves:
+            print(f"{Fore.MAGENTA}🎯 Highlighted: possible moves")
+        print()
+        
+        # Column labels with better spacing
+        print("     " + "   ".join([f"{Fore.CYAN}{chr(ord('a') + i)}" for i in range(8)]))
+        print(f"   {Fore.WHITE}┌" + "───┬" * 7 + "───┐")
+        
+        # Display board rows with improved formatting
         for row in range(8):
             display_row = 8 - row if player_color == Color.WHITE else row + 1
-            row_str = f"{display_row} │ "
+            row_str = f" {Fore.CYAN}{display_row} {Fore.WHITE}│"
             
             for col in range(8):
                 board_row = row if player_color == Color.WHITE else 7 - row
                 piece = visible_board[board_row][col]
                 
-                # Determine background color
-                is_light_square = (row + col) % 2 == 0
-                bg_color = Back.WHITE if is_light_square else Back.BLACK
-                
-                # Highlight possible moves
+                # Determine background color with better contrast
+                is_light_square = (board_row + col) % 2 == 0
                 if (board_row, col) in highlighted_moves:
-                    bg_color = Back.GREEN
+                    bg_color = Back.MAGENTA
+                    text_color = Fore.WHITE
+                elif is_light_square:
+                    bg_color = Back.LIGHTWHITE_EX
+                    text_color = Fore.BLACK
+                else:
+                    bg_color = Back.LIGHTBLACK_EX
+                    text_color = Fore.WHITE
                 
-                # Format piece display
+                # Format piece display with better symbols
                 if piece:
                     if piece in ['●', '○']:  # Unknown enemy pieces
-                        piece_str = f"{bg_color}{Fore.RED}{piece}"
+                        piece_display = f"{bg_color}{Fore.RED} {piece} "
                     else:  # Known pieces
-                        piece_color = Fore.BLUE if piece in "♔♕♖♗♘♙" else Fore.RED
-                        piece_str = f"{bg_color}{piece_color}{piece}"
+                        if piece in "♔♕♖♗♘♙":  # White pieces
+                            piece_display = f"{bg_color}{Fore.BLUE} {piece} "
+                        else:  # Black pieces
+                            piece_display = f"{bg_color}{Fore.RED} {piece} "
                 else:
-                    piece_str = f"{bg_color} "
+                    piece_display = f"{bg_color}{text_color}   "
                 
-                row_str += piece_str + " "
+                row_str += piece_display + f"{Style.RESET_ALL}{Fore.WHITE}│"
             
-            row_str += f"{Style.RESET_ALL}│"
             print(row_str)
+            
+            # Add horizontal separator between rows (except last)
+            if row < 7:
+                print(f"   {Fore.WHITE}├" + "───┼" * 7 + "───┤")
         
-        print("  └" + "─" * 23 + "┘")
-        print("    " + "  ".join([chr(ord('a') + i) for i in range(8)]))
+        print(f"   {Fore.WHITE}└" + "───┴" * 7 + "───┘")
+        print("     " + "   ".join([f"{Fore.CYAN}{chr(ord('a') + i)}" for i in range(8)]))
+        print(f"{Style.RESET_ALL}")
     
     def display_game_status(self, game_info: Dict):
         """Display current game status information."""
@@ -103,12 +121,27 @@ class CLIInterface:
             winner = game_info.get('winner', 'Unknown')
             print(f"\n{Fore.YELLOW}🏆 GAME OVER! Winner: {winner.title()}")
     
-    def get_move_input(self) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
-        """Get move input from user."""
-        print(f"\n{Fore.CYAN}Enter your move (e.g., 'e2 e4') or 'help' for commands:")
+    def get_move_input(self, available_pieces: List[Tuple[int, int]] = None) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+        """Get move input from user with enhanced suggestions."""
+        print(f"\n{Fore.CYAN}╔══════════════════════════════════════╗")
+        print(f"{Fore.CYAN}║              YOUR TURN               ║")
+        print(f"{Fore.CYAN}╚══════════════════════════════════════╝")
+        
+        print(f"\n{Fore.YELLOW}📝 Enter your move:")
+        print(f"{Fore.WHITE}   • Format: 'e2 e4' (from square to square)")
+        print(f"{Fore.WHITE}   • Special: 'liar' to call opponent a liar")
+        print(f"{Fore.WHITE}   • Special: 'checkmate' to claim victory")
+        print(f"{Fore.WHITE}   • Commands: 'help', 'quit'")
+        
+        if available_pieces:
+            coords_to_algebraic = lambda pos: chr(ord('a') + pos[1]) + str(pos[0] + 1)
+            piece_squares = [coords_to_algebraic(pos) for pos in available_pieces[:6]]  # Show first 6
+            if len(available_pieces) > 6:
+                piece_squares.append("...")
+            print(f"{Fore.GREEN}   💡 Your pieces at: {', '.join(piece_squares)}")
         
         while True:
-            user_input = input(f"{Fore.WHITE}> ").strip().lower()
+            user_input = input(f"\n{Fore.CYAN}Move> {Fore.WHITE}").strip().lower()
             
             if user_input in ['quit', 'exit', 'q']:
                 return None, None
@@ -123,7 +156,7 @@ class CLIInterface:
             if user_input == 'checkmate':
                 return 'checkmate', None
             
-            # Parse move input (e.g., "e2 e4")
+            # Parse move input with better error messages
             move_pattern = r'^([a-h][1-8])\s+([a-h][1-8])$'
             match = re.match(move_pattern, user_input)
             
@@ -131,36 +164,77 @@ class CLIInterface:
                 from_square, to_square = match.groups()
                 from_pos = self.algebraic_to_coords(from_square)
                 to_pos = self.algebraic_to_coords(to_square)
+                
+                # Validate squares are different
+                if from_pos == to_pos:
+                    print(f"{Fore.RED}❌ Cannot move to the same square!")
+                    continue
+                    
                 return from_pos, to_pos
             
-            print(f"{Fore.RED}Invalid input. Use format 'e2 e4' or type 'help'")
+            # Provide specific error messages
+            if len(user_input.split()) != 2:
+                print(f"{Fore.RED}❌ Please enter two squares separated by space (e.g., 'e2 e4')")
+            elif not re.match(r'^[a-h][1-8]', user_input.split()[0]):
+                print(f"{Fore.RED}❌ First square invalid. Use format like 'e2' (column a-h, row 1-8)")
+            elif not re.match(r'^[a-h][1-8]', user_input.split()[1]):
+                print(f"{Fore.RED}❌ Second square invalid. Use format like 'e4' (column a-h, row 1-8)")
+            else:
+                print(f"{Fore.RED}❌ Invalid format. Use 'e2 e4' or type 'help' for more options")
     
     def get_piece_type_input(self, available_moves: Dict[PieceType, List[Tuple[int, int]]]) -> Optional[PieceType]:
         """Get the piece type the player wants to claim."""
-        print(f"\n{Fore.CYAN}Choose what piece type to move as:")
+        print(f"\n{Fore.CYAN}╔══════════════════════════════════════╗")
+        print(f"{Fore.CYAN}║           CHOOSE PIECE TYPE          ║")
+        print(f"{Fore.CYAN}╚══════════════════════════════════════╝")
+        
+        print(f"\n{Fore.YELLOW}🎭 What piece do you want to pretend to be?")
+        print(f"{Fore.WHITE}   (Remember: You can lie about your piece type!)")
         
         piece_options = []
+        piece_symbols = {
+            PieceType.PAWN: "♟",
+            PieceType.ROOK: "♜", 
+            PieceType.KNIGHT: "♞",
+            PieceType.BISHOP: "♝",
+            PieceType.QUEEN: "♛",
+            PieceType.KING: "♚"
+        }
+        
         for i, (piece_type, moves) in enumerate(available_moves.items(), 1):
             piece_name = piece_type.value.title()
+            symbol = piece_symbols.get(piece_type, "?")
             move_count = len(moves)
-            print(f"{Fore.WHITE}{i}. {piece_name} ({move_count} possible moves)")
+            
+            # Show first few moves as examples
+            example_moves = [self.coords_to_algebraic(move) for move in moves[:3]]
+            examples = ", ".join(example_moves)
+            if len(moves) > 3:
+                examples += "..."
+                
+            print(f"{Fore.WHITE}{i}. {symbol} {piece_name} - {Fore.GREEN}{move_count} moves {Fore.CYAN}({examples})")
             piece_options.append(piece_type)
+        
+        print(f"\n{Fore.MAGENTA}💡 Tip: Choose wisely - your opponent might call you a liar!")
         
         while True:
             try:
-                choice = input(f"{Fore.WHITE}Select piece type (1-{len(piece_options)}): ").strip()
+                choice = input(f"\n{Fore.CYAN}Select> {Fore.WHITE}").strip()
                 
-                if choice.lower() in ['quit', 'exit', 'q']:
+                if choice.lower() in ['quit', 'exit', 'q', 'back']:
                     return None
                 
                 choice_num = int(choice)
                 if 1 <= choice_num <= len(piece_options):
-                    return piece_options[choice_num - 1]
+                    selected_piece = piece_options[choice_num - 1]
+                    symbol = piece_symbols.get(selected_piece, "?")
+                    print(f"{Fore.GREEN}✅ You chose to move as: {symbol} {selected_piece.value.title()}")
+                    return selected_piece
                 else:
-                    print(f"{Fore.RED}Please enter a number between 1 and {len(piece_options)}")
+                    print(f"{Fore.RED}❌ Please enter a number between 1 and {len(piece_options)}")
                     
             except ValueError:
-                print(f"{Fore.RED}Please enter a valid number")
+                print(f"{Fore.RED}❌ Please enter a valid number (1-{len(piece_options)})")
     
     def display_possible_moves(self, moves: List[Tuple[int, int]]):
         """Display possible moves for a piece."""
