@@ -120,8 +120,8 @@ class DeceptionLayer:
         # Create deception move record
         deception_move = DeceptionMove(from_pos, to_pos, claimed_piece, piece.type, player_color)
         
-        # Make the actual move on the chess board
-        if self.chess_board.make_move(from_pos, to_pos):
+        # Make the actual move on the chess board using deceptive move method
+        if self.chess_board.make_deceptive_move(from_pos, to_pos):
             self.last_move = deception_move
             self.liar_call_available = True
             return True

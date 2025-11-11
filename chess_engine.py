@@ -355,6 +355,37 @@ class ChessBoard:
         
         return True
     
+    def make_deceptive_move(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> bool:
+        """Make a move without validating against piece's actual legal moves (for deception layer)."""
+        piece = self.get_piece(from_pos[0], from_pos[1])
+        if not piece or piece.color != self.current_turn:
+            return False
+        
+        # Make the move without legal move validation
+        captured_piece = self.get_piece(to_pos[0], to_pos[1])
+        self.set_piece(from_pos[0], from_pos[1], None)
+        self.set_piece(to_pos[0], to_pos[1], piece)
+        piece.has_moved = True
+        
+        # Record move
+        self.move_history.append({
+            'from': from_pos,
+            'to': to_pos,
+            'piece': piece.type,
+            'captured': captured_piece.type if captured_piece else None,
+            'turn': self.current_turn
+        })
+        
+        # Switch turns
+        self.current_turn = Color.BLACK if self.current_turn == Color.WHITE else Color.WHITE
+        
+        # Check for checkmate
+        if self.is_checkmate(self.current_turn):
+            self.game_over = True
+            self.winner = Color.BLACK if self.current_turn == Color.WHITE else Color.WHITE
+        
+        return True
+    
     def get_board_state(self) -> Dict:
         """Get current board state for serialization."""
         state = {
