@@ -25,6 +25,8 @@ class LiarsChessGame:
         self.running = False
         self.player_id = None
         self.player_color = None
+        self.last_message = None
+        self.last_message_type = None
         
     def main_menu(self):
         """Display main menu and handle user choice."""
@@ -148,6 +150,9 @@ class LiarsChessGame:
             # Register client callbacks
             self.client.register_callback(MessageType.GAME_STATE.value, self.on_game_state_received)
             self.client.register_callback(MessageType.ERROR.value, self.on_error_received)
+            self.client.register_callback(MessageType.MOVE.value, self.on_move_result_received)
+            self.client.register_callback(MessageType.LIAR_CALL.value, self.on_liar_call_result_received)
+            self.client.register_callback(MessageType.CHECKMATE_CLAIM.value, self.on_checkmate_claim_result_received)
             
             self.cli.display_success("Connected to server!")
             self.cli.display_player_info(self.player_id, self.player_color)
@@ -208,6 +213,18 @@ class LiarsChessGame:
                 self.cli.display_board(game_info['visible_board'], self.player_color)
                 self.cli.display_game_status(game_info)
                 
+                # Display any pending messages
+                if self.last_message:
+                    if self.last_message_type == 'error':
+                        self.cli.display_error(self.last_message)
+                    elif self.last_message_type == 'info':
+                        self.cli.display_info(self.last_message)
+                    elif self.last_message_type == 'success':
+                        self.cli.display_success(self.last_message)
+                    # Clear message after displaying
+                    self.last_message = None
+                    self.last_message_type = None
+                
                 # Check if game is over
                 if game_info.get('game_over'):
                     winner = game_info.get('winner', 'Unknown')
@@ -229,11 +246,22 @@ class LiarsChessGame:
                 
                 # Get available pieces for the player
                 available_pieces = []
-                for row in range(8):
-                    for col in range(8):
-                        piece = self.game_state.chess_board.get_piece(row, col)
-                        if piece and piece.color == self.player_color:
-                            available_pieces.append((row, col))
+                if self.is_server:
+                    # Server can access game state directly
+                    for row in range(8):
+                        for col in range(8):
+                            piece = self.game_state.chess_board.get_piece(row, col)
+                            if piece and piece.color == self.player_color:
+                                available_pieces.append((row, col))
+                else:
+                    # Client uses game info from server
+                    visible_board = game_info.get('visible_board', [])
+                    for row in range(8):
+                        for col in range(8):
+                            if row < len(visible_board) and col < len(visible_board[row]):
+                                piece_info = visible_board[row][col]
+                                if piece_info and piece_info.get('color') == self.player_color.value:
+                                    available_pieces.append((row, col))
                 
                 # Get player input
                 from_pos, to_pos = self.cli.get_move_input(available_pieces)
@@ -257,39 +285,50 @@ class LiarsChessGame:
     
     def handle_move(self, from_pos: tuple, to_pos: tuple):
         """Handle a move attempt."""
-        # Get available moves for the piece
-        piece = self.game_state.chess_board.get_piece(from_pos[0], from_pos[1])
-        if not piece or piece.color != self.player_color:
-            self.cli.display_error("Invalid piece selection")
-            self.cli.wait_for_enter()
-            return
-        
-        # Get move options for different piece types
-        move_options = self.game_state.deception_layer.get_move_options(from_pos, self.player_color)
-        
-        # Filter options that include the target position
-        valid_options = {pt: moves for pt, moves in move_options.items() if to_pos in moves}
-        
-        if not valid_options:
-            self.cli.display_error("No piece type can make that move")
-            self.cli.wait_for_enter()
-            return
-        
-        # Let player choose piece type to claim
-        claimed_piece_type = self.cli.get_piece_type_input(valid_options)
-        if claimed_piece_type is None:
-            return
-        
-        # Send move to server/game state
-        if self.client:
+        if self.is_server:
+            # Server can access game state directly
+            piece = self.game_state.chess_board.get_piece(from_pos[0], from_pos[1])
+            if not piece or piece.color != self.player_color:
+                self.cli.display_error("Invalid piece selection")
+                self.cli.wait_for_enter()
+                return
+            
+            # Get move options for different piece types
+            move_options = self.game_state.deception_layer.get_move_options(from_pos, self.player_color)
+            
+            # Filter options that include the target position
+            valid_options = {pt: moves for pt, moves in move_options.items() if to_pos in moves}
+            
+            if not valid_options:
+                self.cli.display_error("No piece type can make that move")
+                self.cli.wait_for_enter()
+                return
+            
+            # Let player choose piece type to claim
+            claimed_piece_type = self.cli.get_piece_type_input(valid_options)
+            if claimed_piece_type is None:
+                return
+            
+            # Process move directly
+            result = self.game_state.make_move(self.player_id, from_pos, to_pos, claimed_piece_type.value)
+            if not result['success']:
+                self.cli.display_error(f"Move failed: {result.get('error', 'Unknown error')}")
+                self.cli.wait_for_enter()
+        else:
+            # Client - get move options from server by trying different piece types
+            from chess_engine import PieceType
+            
+            # For clients, we'll allow them to choose any piece type and let the server validate
+            piece_types = list(PieceType)
+            claimed_piece_type = self.cli.get_piece_type_input({pt: [(to_pos)] for pt in piece_types})
+            if claimed_piece_type is None:
+                return
+            
+            # Send move to server
             success = self.client.make_move(from_pos, to_pos, claimed_piece_type.value)
             if not success:
                 self.cli.display_error("Failed to send move")
-        else:
-            result = self.game_state.make_move(self.player_id, from_pos, to_pos, claimed_piece_type.value)
-            self.cli.display_move_result(result['success'], result.get('error', ''))
-        
-        time.sleep(1)
+                self.cli.wait_for_enter()
     
     def handle_liar_call(self):
         """Handle a liar call."""
@@ -478,6 +517,49 @@ class LiarsChessGame:
     def on_error_received(self, message: Dict):
         """Handle error message from server."""
         self.cli.display_error(message.get('message', 'Unknown error'))
+    
+    def on_move_result_received(self, message: Dict):
+        """Handle move result from server."""
+        if message.get('success'):
+            if message.get('player') != self.player_id:
+                # Opponent's move
+                move_info = message.get('move', {})
+                self.last_message = f"Opponent moved from {move_info.get('from')} to {move_info.get('to')}"
+                self.last_message_type = 'info'
+        else:
+            # Failed move - store error to display persistently
+            if message.get('player') == self.player_id:
+                error = message.get('error', 'Move failed')
+                self.last_message = f"Move failed: {error}"
+                self.last_message_type = 'error'
+    
+    def on_liar_call_result_received(self, message: Dict):
+        """Handle liar call result from server."""
+        if message.get('success'):
+            result = message.get('result')
+            liar_message = message.get('message', '')
+            self.last_message = f"Liar call result: {liar_message}"
+            self.last_message_type = 'info'
+        else:
+            error = message.get('error', 'Liar call failed')
+            self.last_message = f"Liar call failed: {error}"
+            self.last_message_type = 'error'
+    
+    def on_checkmate_claim_result_received(self, message: Dict):
+        """Handle checkmate claim result from server."""
+        if message.get('success'):
+            is_checkmate = message.get('is_checkmate')
+            claim_message = message.get('message', '')
+            if is_checkmate:
+                self.last_message = f"Checkmate claim successful! {claim_message}"
+                self.last_message_type = 'success'
+            else:
+                self.last_message = f"Checkmate claim failed: {claim_message}"
+                self.last_message_type = 'error'
+        else:
+            error = message.get('error', 'Checkmate claim failed')
+            self.last_message = f"Checkmate claim failed: {error}"
+            self.last_message_type = 'error'
 
 
 def main():
